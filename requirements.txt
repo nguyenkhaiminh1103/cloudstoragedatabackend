@@ -6,3 +6,4 @@ passlib
 boto3
 python-dotenv
 python-multipart
+gunicorn

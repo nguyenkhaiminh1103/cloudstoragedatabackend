@@ -28,7 +28,7 @@ app.add_middleware(
 )
 
 @app.post("/register")
-def register(email: str, password: str):
+def register(email: str = Form(...), password: str = Form(...)):
     db = SessionLocal()
     try:
         # check existing user

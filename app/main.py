@@ -181,4 +181,5 @@ def list_files():
             for f in resources
         ]
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Cloudinary list failed: {e}")
+        # If Cloudinary listing fails and DB fallback also unavailable, return empty list
+        return []

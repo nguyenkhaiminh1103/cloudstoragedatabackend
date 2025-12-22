@@ -8,3 +8,4 @@ python-dotenv
 python-multipart
 gunicorn
 cloudinary
+psycopg2-binary

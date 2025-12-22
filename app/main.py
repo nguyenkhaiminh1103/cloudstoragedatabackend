@@ -1,7 +1,7 @@
 import os
 from dotenv import load_dotenv
 load_dotenv()  # load .env before importing libraries that read env
-from fastapi import FastAPI, UploadFile, Depends, HTTPException, Form
+from fastapi import FastAPI, UploadFile, Depends, HTTPException, Form, Request
 from sqlalchemy.exc import IntegrityError
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine, SessionLocal
@@ -28,7 +28,27 @@ app.add_middleware(
 )
 
 @app.post("/register")
-def register(email: str = Form(...), password: str = Form(...)):
+async def register(request: Request, email: str = Form(None), password: str = Form(None)):
+    # Accept form data, query params, or JSON body for flexibility
+    if not email:
+        email = request.query_params.get("email")
+    if not password:
+        password = request.query_params.get("password")
+
+    # try JSON body if still missing
+    if (not email or not password) and request.headers.get("content-type", "").startswith("application/json"):
+        try:
+            body = await request.json()
+            if not email:
+                email = body.get("email")
+            if not password:
+                password = body.get("password")
+        except Exception:
+            pass
+
+    if not email or not password:
+        raise HTTPException(status_code=422, detail=[{"loc": ["body"], "msg": "email and password required"}])
+
     db = SessionLocal()
     try:
         # check existing user

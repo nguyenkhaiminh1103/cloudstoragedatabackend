@@ -109,7 +109,8 @@ async def upload(file: UploadFile):
         raise HTTPException(status_code=500, detail="Cloudinary API credentials not configured. Set CLOUDINARY_URL or CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET/CLOUDINARY_CLOUD_NAME.")
 
     try:
-        result = cloudinary.uploader.upload(file.file)
+        # upload with resource_type='auto' so images and other file types are handled
+        result = cloudinary.uploader.upload(file.file, resource_type="auto")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
 
@@ -124,8 +125,9 @@ def ping():
 
 @app.get("/files")
 def list_files():
+    # list all resource types (images, raw files, etc.) by using 'auto'
     result = cloudinary.api.resources(
-        resource_type="raw",   # file thường
+        resource_type="auto",
         max_results=50
     )
 

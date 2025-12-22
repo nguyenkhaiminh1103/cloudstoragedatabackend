@@ -1,7 +1,8 @@
 import os
 from dotenv import load_dotenv
 load_dotenv()  # load .env before importing libraries that read env
-from fastapi import FastAPI, UploadFile, Depends, HTTPException
+from fastapi import FastAPI, UploadFile, Depends, HTTPException, Form
+from sqlalchemy.exc import IntegrityError
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine, SessionLocal
 from app.models import User, File
@@ -29,18 +30,38 @@ app.add_middleware(
 @app.post("/register")
 def register(email: str, password: str):
     db = SessionLocal()
-    user = User(email=email, password=hash_password(password))
-    db.add(user)
-    db.commit()
-    return {"message": "Registered"}
+    try:
+        # check existing user
+        existing = db.query(User).filter(User.email == email).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Email already registered")
+
+        user = User(email=email, password=hash_password(password))
+        db.add(user)
+        db.commit()
+        return {"message": "Registered"}
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="Email already registered")
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Registration failed: {e}")
+    finally:
+        db.close()
 
 @app.post("/login")
-def login(email: str, password: str):
+def login(email: str = Form(...), password: str = Form(...)):
     db = SessionLocal()
-    user = db.query(User).filter(User.email == email).first()
-    if not user or not verify(password, user.password):
-        return {"error": "Invalid"}
-    return {"token": create_token({"sub": user.email})}
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if not user or not verify(password, user.password):
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        return {"token": create_token({"sub": user.email})}
+    finally:
+        db.close()
 
 @app.post("/upload")
 async def upload(file: UploadFile):

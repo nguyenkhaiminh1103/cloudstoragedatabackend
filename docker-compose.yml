@@ -1,0 +1,26 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cloud
+    volumes:
+      - db_data:/var/lib/postgresql/data
+
+  backend:
+    build: .
+    command: gunicorn -k uvicorn.workers.UvicornWorker app.main:app --bind 0.0.0.0:8001
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/cloud
+      - SECRET_KEY=changeme
+      - CLOUDINARY_URL=
+      - PORT=8001
+    depends_on:
+      - db
+
+volumes:
+  db_data:

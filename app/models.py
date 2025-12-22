@@ -14,4 +14,5 @@ class File(Base):
     id = Column(Integer, primary_key=True)
     filename = Column(String)
     size = Column(Float)
+    url = Column(String, nullable=True)
     owner_id = Column(Integer, ForeignKey("users.id"))

@@ -11,6 +11,7 @@ from app.auth import hash_password, verify, create_token
 from fastapi import UploadFile
 import cloudinary.uploader
 import cloudinary.api
+import cloudinary.utils
 
 Base.metadata.create_all(bind=engine)
 app = FastAPI()
@@ -117,7 +118,9 @@ async def upload(file: UploadFile):
     # Persist a simple record in the DB for visibility (owner_id left null)
     try:
         db = SessionLocal()
-        f = File(filename=result.get("public_id") or file.filename, size=float(result.get("bytes") or 0.0), owner_id=None)
+        public_id = result.get("public_id") or file.filename
+        secure_url = result.get("secure_url")
+        f = File(filename=public_id, size=float(result.get("bytes") or 0.0), url=secure_url, owner_id=None)
         db.add(f)
         db.commit()
     except Exception:
@@ -140,19 +143,42 @@ def ping():
 @app.get("/files")
 def list_files():
     # list all resource types (images, raw files, etc.) by using 'auto'
+    # Prefer returning DB-stored records (most reliable URLs). If DB has none, query Cloudinary.
+    try:
+        db = SessionLocal()
+        files = db.query(File).order_by(File.id.desc()).all()
+        if files:
+            out = []
+            for f in files:
+                out.append({
+                    "name": f.filename,
+                    "url": f.url,
+                    "size": f.size
+                })
+            return out
+    except Exception as db_e:
+        # if DB read fails, continue to try Cloudinary API
+        pass
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
+    # DB empty or failed — query Cloudinary directly
     try:
         result = cloudinary.api.resources(
             resource_type="auto",
             max_results=50
         )
+        resources = result.get("resources", [])
+        return [
+            {
+                "name": f["public_id"],
+                "url": f.get("secure_url"),
+                "size": f.get("bytes")
+            }
+            for f in resources
+        ]
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cloudinary list failed: {e}")
-
-    return [
-        {
-            "name": f["public_id"],
-            "url": f.get("secure_url"),
-            "size": f.get("bytes")
-        }
-        for f in result.get("resources", [])
-    ]

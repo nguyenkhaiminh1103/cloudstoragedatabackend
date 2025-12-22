@@ -114,6 +114,20 @@ async def upload(file: UploadFile):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")
 
+    # Persist a simple record in the DB for visibility (owner_id left null)
+    try:
+        db = SessionLocal()
+        f = File(filename=result.get("public_id") or file.filename, size=float(result.get("bytes") or 0.0), owner_id=None)
+        db.add(f)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        try:
+            db.close()
+        except Exception:
+            pass
+
     return {
         "filename": file.filename,
         "url": result.get("secure_url")
@@ -126,16 +140,19 @@ def ping():
 @app.get("/files")
 def list_files():
     # list all resource types (images, raw files, etc.) by using 'auto'
-    result = cloudinary.api.resources(
-        resource_type="auto",
-        max_results=50
-    )
+    try:
+        result = cloudinary.api.resources(
+            resource_type="auto",
+            max_results=50
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cloudinary list failed: {e}")
 
     return [
         {
             "name": f["public_id"],
-            "url": f["secure_url"],
-            "size": f["bytes"]
+            "url": f.get("secure_url"),
+            "size": f.get("bytes")
         }
         for f in result.get("resources", [])
     ]

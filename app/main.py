@@ -164,16 +164,34 @@ def ping():
     return {"status": "backend ok"}
 
 @app.get("/files")
-def list_files(current_user: User = Depends(get_current_user)):
+def list_files(current_user: User = Depends(get_current_user), q: str = None, sort: str = None):
     # list all resource types (images, raw files, etc.) by using 'auto'
     # Prefer returning DB-stored records (most reliable URLs). If DB has none, query Cloudinary.
     try:
         db = SessionLocal()
-        files = db.query(File).filter(File.owner_id == current_user.id).order_by(File.id.desc()).all()
+        query = db.query(File).filter(File.owner_id == current_user.id)
+        if q:
+            # case-insensitive search on filename
+            try:
+                query = query.filter(File.filename.ilike(f"%{q}%"))
+            except Exception:
+                # fallback to simple contains
+                query = query.filter(File.filename.contains(q))
+
+        # sorting
+        if sort == "size":
+            query = query.order_by(File.size.desc())
+        elif sort == "oldest":
+            query = query.order_by(File.id.asc())
+        else:
+            query = query.order_by(File.id.desc())
+
+        files = query.all()
         if files:
             out = []
             for f in files:
                 out.append({
+                    "id": f.id,
                     "name": f.filename,
                     "url": f.url,
                     "size": f.size
@@ -197,6 +215,7 @@ def list_files(current_user: User = Depends(get_current_user)):
         resources = result.get("resources", [])
         return [
             {
+                "id": None,
                 "name": f["public_id"],
                 "url": f.get("secure_url"),
                 "size": f.get("bytes")

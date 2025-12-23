@@ -6,7 +6,30 @@ from sqlalchemy.exc import IntegrityError
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import Base, engine, SessionLocal
 from app.models import User, File
-from app.auth import hash_password, verify, create_token
+from app.auth import hash_password, verify, create_token, SECRET_KEY, ALGORITHM
+from jose import jwt
+from fastapi import status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+security = HTTPBearer()
+
+
+def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    token = credentials.credentials if credentials else None
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing authentication token")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        email = payload.get("sub")
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+    db = SessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+    finally:
+        db.close()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
+    return user
 # from s3_service import s3, BUCKET
 from fastapi import UploadFile
 import cloudinary.uploader
@@ -104,7 +127,7 @@ async def login(request: Request, email: str = Form(None), password: str = Form(
         db.close()
 
 @app.post("/upload")
-async def upload(file: UploadFile):
+async def upload(file: UploadFile, current_user: User = Depends(get_current_user)):
     # ensure Cloudinary credentials exist
     if not (os.getenv("CLOUDINARY_URL") or (os.getenv("CLOUDINARY_API_KEY") and os.getenv("CLOUDINARY_API_SECRET") and os.getenv("CLOUDINARY_CLOUD_NAME"))):
         raise HTTPException(status_code=500, detail="Cloudinary API credentials not configured. Set CLOUDINARY_URL or CLOUDINARY_API_KEY/CLOUDINARY_API_SECRET/CLOUDINARY_CLOUD_NAME.")
@@ -120,7 +143,7 @@ async def upload(file: UploadFile):
         db = SessionLocal()
         public_id = result.get("public_id") or file.filename
         secure_url = result.get("secure_url")
-        f = File(filename=public_id, size=float(result.get("bytes") or 0.0), url=secure_url, owner_id=None)
+        f = File(filename=public_id, size=float(result.get("bytes") or 0.0), url=secure_url, owner_id=current_user.id)
         db.add(f)
         db.commit()
     except Exception:
@@ -141,12 +164,12 @@ def ping():
     return {"status": "backend ok"}
 
 @app.get("/files")
-def list_files():
+def list_files(current_user: User = Depends(get_current_user)):
     # list all resource types (images, raw files, etc.) by using 'auto'
     # Prefer returning DB-stored records (most reliable URLs). If DB has none, query Cloudinary.
     try:
         db = SessionLocal()
-        files = db.query(File).order_by(File.id.desc()).all()
+        files = db.query(File).filter(File.owner_id == current_user.id).order_by(File.id.desc()).all()
         if files:
             out = []
             for f in files:

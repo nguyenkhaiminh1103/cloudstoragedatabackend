@@ -16,7 +16,7 @@ Be careful when running against production DB; recommended to backup DB first.
 """
 import os
 import sys
-from sqlalchemy import create_engine, inspect, Table, Column, String, MetaData, select
+from sqlalchemy import create_engine, inspect, Table, Column, String, MetaData, select, text
 from sqlalchemy.orm import sessionmaker
 import cloudinary
 import cloudinary.api
@@ -35,13 +35,10 @@ def ensure_url_column(engine):
 
     print("Adding 'url' column to files table")
     dialect = engine.dialect.name
-    if dialect == 'sqlite':
-        # sqlite supports ALTER TABLE ADD COLUMN
-        with engine.connect() as conn:
-            conn.execute("ALTER TABLE files ADD COLUMN url TEXT;")
-    else:
-        with engine.connect() as conn:
-            conn.execute("ALTER TABLE files ADD COLUMN url TEXT;")
+    # Use engine.begin() and sqlalchemy.text() to execute raw SQL safely
+    alter_sql = text("ALTER TABLE files ADD COLUMN url TEXT")
+    with engine.begin() as conn:
+        conn.execute(alter_sql)
     print("Added 'url' column")
 
 def backfill(engine):
@@ -50,9 +47,11 @@ def backfill(engine):
     metadata = MetaData()
     files_table = Table('files', metadata, autoload_with=engine)
 
-    rows = session.execute(select([files_table.c.id, files_table.c.filename, files_table.c.url]).where(
+    # use column arguments (not a list) to be compatible with SQLAlchemy 1.4+
+    stmt = select(files_table.c.id, files_table.c.filename, files_table.c.url).where(
         (files_table.c.url == None) | (files_table.c.url == "")
-    )).fetchall()
+    )
+    rows = session.execute(stmt).fetchall()
 
     print(f"Found {len(rows)} rows to backfill")
     if len(rows) == 0:
@@ -63,7 +62,28 @@ def backfill(engine):
         public_id = r[1]
         print(f"Processing id={fid} public_id={public_id}...")
         try:
-            res = cloudinary.api.resource(public_id, resource_type='auto')
+            # Some Cloudinary APIs don't accept resource_type='auto' for resource()
+            # Try several resource_type values (None => omit param), stop on first success
+            tried = [None, 'image', 'raw', 'video']
+            res = None
+            last_exc = None
+            for rt in tried:
+                try:
+                    if rt is None:
+                        res = cloudinary.api.resource(public_id)
+                    else:
+                        res = cloudinary.api.resource(public_id, resource_type=rt)
+                    # if call succeeded, break
+                    break
+                except Exception as e:
+                    last_exc = e
+                    res = None
+                    continue
+
+            if not res:
+                print(f" -> cloudinary lookup failed for {public_id}: {last_exc}")
+                continue
+
             secure_url = res.get('secure_url')
             if secure_url:
                 session.execute(files_table.update().where(files_table.c.id==fid).values(url=secure_url))
@@ -71,7 +91,7 @@ def backfill(engine):
             else:
                 print(f" -> no secure_url for {public_id}")
         except Exception as e:
-            print(f" -> cloudinary lookup failed for {public_id}: {e}")
+            print(f" -> unexpected error for {public_id}: {e}")
 
     session.commit()
     session.close()

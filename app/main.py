@@ -9,8 +9,7 @@ from app.models import User, File
 from app.auth import hash_password, verify, create_token, SECRET_KEY, ALGORITHM
 from jose import jwt
 from fastapi import status
-# HTTPAuthorizationCredentials is unused; only HTTPBearer is needed
-from fastapi.security import HTTPBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 security = HTTPBearer()
 
 
@@ -135,6 +134,10 @@ async def upload(file: UploadFile, current_user: User = Depends(get_current_user
 
     try:
         # upload with resource_type='auto' so images and other file types are handled
+        try:
+            print(f"Upload requested by user: {getattr(current_user, 'email', None)} filename={getattr(file, 'filename', None)}")
+        except Exception:
+            pass
         result = cloudinary.uploader.upload(file.file, resource_type="auto")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Cloudinary upload failed: {e}")

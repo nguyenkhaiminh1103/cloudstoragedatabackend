@@ -9,7 +9,8 @@ from app.models import User, File
 from app.auth import hash_password, verify, create_token, SECRET_KEY, ALGORITHM
 from jose import jwt
 from fastapi import status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+# HTTPAuthorizationCredentials is unused; only HTTPBearer is needed
+from fastapi.security import HTTPBearer
 security = HTTPBearer()
 
 
@@ -31,7 +32,7 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="User not found")
     return user
 # from s3_service import s3, BUCKET
-from fastapi import UploadFile
+# UploadFile already imported above with FastAPI imports
 import cloudinary.uploader
 import cloudinary.api
 import cloudinary.utils
